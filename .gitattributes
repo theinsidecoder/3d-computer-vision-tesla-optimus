@@ -1,0 +1,9 @@
+```gitattributes
+# Force entire repository statistics to display as 100% JavaScript on GitHub
+*.html linguist-language=JavaScript
+*.htm linguist-language=JavaScript
+
+# End of Line handling for cross-platform compatibility
+* text=auto eol=lf
+
+```

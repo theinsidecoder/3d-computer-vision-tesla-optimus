@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Optimus // Spatial CAD</title>
+    <style>
+        :root {
+            --bg: #050508;
+            --glass: rgba(15, 15, 20, 0.75);
+            --border: rgba(255, 255, 255, 0.08);
+            --accent: #00e5ff;
+            --accent-dim: rgba(0, 229, 255, 0.15);
+            --text: #e2e8f0;
+            --text-dim: #64748b;
+            --red: #ff3366;
+            --green: #00ff88;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            user-select: none;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        #webgl-container {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+        }
+
+        #ui-container {
+            position: absolute;
+            inset: 0;
+            z-index: 10;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        /* Top Bar */
+        .top-bar {
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--glass);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            padding: 8px 16px;
+            border-radius: 100px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 1px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--red);
+            transition: 0.3s;
+        }
+
+        .status-dot.active {
+            background: var(--green);
+            box-shadow: 0 0 12px var(--green);
+        }
+
+        /* Reticle */
+        #reticle {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            border: 1px solid var(--accent);
+            border-radius: 50%;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            transition: width 0.2s, height 0.2s, border-color 0.2s;
+            z-index: 20;
+            box-shadow: 0 0 15px var(--accent-dim);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #reticle::after {
+            content: '';
+            width: 4px;
+            height: 4px;
+            background: var(--accent);
+            border-radius: 50%;
+        }
+
+        #reticle.grabbing {
+            width: 60px;
+            height: 60px;
+            border-color: var(--green);
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+        }
+
+        /* AI Chat */
+        .chat-panel {
+            position: absolute;
+            right: 30px;
+            top: 80px;
+            width: 320px;
+            height: 400px;
+            pointer-events: auto;
+            background: var(--glass);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s;
+            transform-origin: top right;
+        }
+
+        .chat-panel.closed {
+            transform: scale(0.9);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .chat-header {
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.8rem;
+            font-weight: 600;
+            letter-spacing: 1px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--accent);
+        }
+
+        .chat-messages {
+            flex: 1;
+            padding: 16px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            font-size: 0.85rem;
+        }
+
+        .msg {
+            padding: 10px 14px;
+            border-radius: 12px;
+            max-width: 90%;
+            line-height: 1.5;
+        }
+
+        .msg.bot {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+        }
+
+        .msg.user {
+            background: var(--accent-dim);
+            border: 1px solid rgba(0, 229, 255, 0.3);
+            color: #fff;
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+        }
+
+        .chat-input-area {
+            padding: 12px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 8px;
+        }
+
+        .chat-input-area input {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid var(--border);
+            padding: 10px 14px;
+            border-radius: 8px;
+            color: white;
+            outline: none;
+            font-size: 0.85rem;
+            transition: border 0.2s;
+        }
+
+        .chat-input-area input:focus {
+            border-color: var(--accent);
+        }
+
+        .send-btn {
+            background: var(--accent);
+            border: none;
+            width: 40px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #000;
+            transition: opacity 0.2s;
+        }
+
+        .send-btn:hover {
+            opacity: 0.8;
+        }
+
+        /* Bottom Toolbar */
+        .toolbar-wrapper {
+            position: absolute;
+            bottom: 30px;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            pointer-events: none;
+        }
+
+        .toolbar {
+            pointer-events: auto;
+            display: flex;
+            gap: 4px;
+            padding: 6px;
+            background: var(--glass);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+        }
+
+        .tool-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-dim);
+            cursor: pointer;
+            padding: 12px 20px;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+            font-size: 0.65rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .tool-btn:hover {
+            color: var(--text);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .tool-btn.active {
+            background: var(--accent-dim);
+            color: var(--accent);
+        }
+
+        .tool-btn svg {
+            width: 20px;
+            height: 20px;
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .divider {
+            width: 1px;
+            background: var(--border);
+            margin: 8px 4px;
+        }
+
+        /* Instructions */
+        .instructions {
+            position: absolute;
+            bottom: 100px;
+            width: 100%;
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 0.75rem;
+            letter-spacing: 1px;
+            pointer-events: none;
+        }
+
+        .instructions span {
+            color: var(--text);
+            background: rgba(255, 255, 255, 0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        /* Loader */
+        #loader {
+            position: absolute;
+            inset: 0;
+            z-index: 100;
+            background: var(--bg);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.6s;
+        }
+
+        #loader.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .error-box {
+            background: rgba(255, 51, 102, 0.1);
+            border: 1px solid var(--red);
+            color: var(--red);
+            padding: 12px 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: none;
+            font-size: 0.8rem;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="webgl-container"></div>
+    <div id="ui-container">
+        <div class="top-bar">
+            <div class="status-badge">
+                <div class="status-dot" id="status-dot"></div>
+                <span id="status-text">INITIALIZING VISION...</span>
+            </div>
+        </div>
+
+        <div id="reticle"></div>
+
+        <div class="chat-panel closed" id="chat-panel">
+            <div class="chat-header">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                </svg>
+                OPTIMUS AI
+            </div>
+            <div class="chat-messages" id="chat-messages">
+                <div class="msg bot">Systems online. I am Optimus. Pinch your fingers to grab components, or make a fist
+                    to disassemble me.</div>
+            </div>
+            <div class="chat-input-area">
+                <input type="text" id="chat-input" placeholder="Ask Optimus..."
+                    onkeypress="if(event.key==='Enter') sendChat()">
+                <button class="send-btn" onclick="sendChat()">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="22" y1="2" x2="11" y2="13"></line>
+                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <div class="instructions" id="instructions">
+            <span>PINCH</span> to Grab • <span>FIST</span> to Explode • <span>OPEN</span> to Fix
+        </div>
+
+        <div class="toolbar-wrapper">
+            <div class="toolbar">
+                <button class="tool-btn active" id="btn-grab" onclick="setTool('grab')">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v5" />
+                        <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v6" />
+                        <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8" />
+                        <path
+                            d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
+                    </svg>
+                    Inspect
+                </button>
+                <div class="divider"></div>
+                <button class="tool-btn" id="btn-explode" onclick="toggleExplode()">
+                    <svg viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path
+                            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
+                        </path>
+                    </svg>
+                    Explode
+                </button>
+                <button class="tool-btn" id="btn-fix" onclick="reassemble()">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                        <path d="M3 3v5h5" />
+                    </svg>
+                    Fix
+                </button>
+                <div class="divider"></div>
+                <button class="tool-btn" onclick="toggleChat()">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                    </svg>
+                    AI Talk
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="loader">
+        <div class="spinner"></div>
+        <div style="font-weight: 600; letter-spacing: 2px; color: var(--accent);" id="loader-text">INITIALIZING V10000.1
+        </div>
+        <div class="error-box" id="error-msg"></div>
+    </div>
+
+    <!-- Three.js Core -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+        // --- STATE ---
+        const state = {
+            mode: 'mouse', // 'mouse' or 'hand'
+            tool: 'grab',
+            exploded: false,
+            targetExplode: 0,
+            currentExplode: 0,
+            grabbedObject: null,
+            handActive: false,
+            mouse: new THREE.Vector2(-10, -10),
+            raycaster: new THREE.Raycaster(),
+            plane: new THREE.Plane(),
+            intersection: new THREE.Vector3(),
+            parts: []
+        };
+
+        // --- DOM ---
+        const container = document.getElementById('webgl-container');
+        const reticle = document.getElementById('reticle');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        const loader = document.getElementById('loader');
+        const loaderText = document.getElementById('loader-text');
+        const errorMsg = document.getElementById('error-msg');
+
+        // ==========================================
+        // 1. THREE.JS SCENE
+        // ==========================================
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x050508, 0.03);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 2.5, 7);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        container.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.maxDistance = 15;
+        controls.minDistance = 3;
+        controls.target.set(0, 1.5, 0);
+
+        // Post-Processing
+        const composer = new EffectComposer(renderer);
+        composer.addPass(new RenderPass(scene, camera));
+        const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.2, 0.4, 0.85);
+        composer.addPass(bloom);
+
+        // Lighting
+        scene.add(new THREE.HemisphereLight(0xffffff, 0x1a1a2e, 1.2));
+
+        const keyLight = new THREE.DirectionalLight(0x00e5ff, 2.5);
+        keyLight.position.set(5, 10, 5);
+        keyLight.castShadow = true;
+        keyLight.shadow.mapSize.width = 2048;
+        keyLight.shadow.mapSize.height = 2048;
+        scene.add(keyLight);
+
+        const rimLight = new THREE.DirectionalLight(0xffb300, 1.5);
+        rimLight.position.set(-5, 5, -5);
+        scene.add(rimLight);
+
+        // Grid Floor
+        const grid = new THREE.GridHelper(40, 80, 0x00e5ff, 0x1a1a2e);
+        grid.material.transparent = true;
+        grid.material.opacity = 0.15;
+        scene.add(grid);
+
+        // ==========================================
+        // 2. BUILD TESLA OPTIMUS (Procedural)
+        // ==========================================
+        const robotRoot = new THREE.Group();
+        scene.add(robotRoot);
+
+        // Materials
+        const matWhite = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.9, roughness: 0.15 });
+        const matBlack = new THREE.MeshStandardMaterial({ color: 0x111827, metalness: 0.8, roughness: 0.4 });
+        const matChrome = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 1.0, roughness: 0.1 });
+        const matGlow = new THREE.MeshStandardMaterial({ color: 0x00e5ff, emissive: 0x00e5ff, emissiveIntensity: 3.0 });
+
+        // Helper function
+        function addPart(geo, mat, x, y, z, ex, ey, ez) {
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(x, y, z);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            mesh.userData = {
+                orig: new THREE.Vector3(x, y, z),
+                exp: new THREE.Vector3(x + ex, y + ey, z + ez),
+                isGrabbed: false
+            };
+            robotRoot.add(mesh);
+            state.parts.push(mesh);
+            return mesh;
+        }
+
+        // --- Torso ---
+        addPart(new THREE.BoxGeometry(1.2, 1.4, 0.6), matWhite, 0, 2.5, 0, 0, 0.5, 0);
+        addPart(new THREE.BoxGeometry(0.8, 0.6, 0.65), matBlack, 0, 2.2, 0, 0, 0, 0.5); // Chest plate
+        addPart(new THREE.CylinderGeometry(0.15, 0.15, 0.1, 32), matGlow, 0, 2.5, 0.35, 0, 0, 1).rotation.x = Math.PI / 2; // Arc reactor
+        addPart(new THREE.BoxGeometry(0.9, 0.5, 0.5), matBlack, 0, 1.6, 0, 0, -0.5, 0); // Abdomen
+
+        // --- Head ---
+        const head = addPart(new THREE.BoxGeometry(0.5, 0.6, 0.5), matWhite, 0, 3.5, 0, 0, 1.5, 0);
+        addPart(new THREE.BoxGeometry(0.4, 0.15, 0.1), matGlow, 0, 3.55, 0.25, 0, 1.5, 0); // Visor
+        addPart(new THREE.BoxGeometry(0.52, 0.2, 0.52), matBlack, 0, 3.3, 0, 0, 1.5, 0); // Neck guard
+
+        // --- Left Arm ---
+        addPart(new THREE.SphereGeometry(0.25, 16, 16), matBlack, -0.8, 3.0, 0, -1.5, 0.5, 0); // Shoulder
+        addPart(new THREE.CapsuleGeometry(0.15, 0.6, 4, 8), matWhite, -0.8, 2.3, 0, -1.5, 0, 0); // Bicep
+        addPart(new THREE.SphereGeometry(0.15, 16, 16), matBlack, -0.8, 1.8, 0, -1.5, -0.5, 0); // Elbow
+        addPart(new THREE.CapsuleGeometry(0.12, 0.6, 4, 8), matWhite, -0.8, 1.2, 0, -1.5, -1.0, 0); // Forearm
+        addPart(new THREE.BoxGeometry(0.15, 0.25, 0.1), matBlack, -0.8, 0.7, 0, -1.5, -1.5, 0); // Hand
+
+        // --- Right Arm ---
+        addPart(new THREE.SphereGeometry(0.25, 16, 16), matBlack, 0.8, 3.0, 0, 1.5, 0.5, 0);
+        addPart(new THREE.CapsuleGeometry(0.15, 0.6, 4, 8), matWhite, 0.8, 2.3, 0, 1.5, 0, 0);
+        addPart(new THREE.SphereGeometry(0.15, 16, 16), matBlack, 0.8, 1.8, 0, 1.5, -0.5, 0);
+        addPart(new THREE.CapsuleGeometry(0.12, 0.6, 4, 8), matWhite, 0.8, 1.2, 0, 1.5, -1.0, 0);
+        addPart(new THREE.BoxGeometry(0.15, 0.25, 0.1), matBlack, 0.8, 0.7, 0, 1.5, -1.5, 0);
+
+        // --- Pelvis ---
+        addPart(new THREE.BoxGeometry(1.0, 0.4, 0.5), matBlack, 0, 1.0, 0, 0, -1.5, 0);
+
+        // --- Left Leg ---
+        addPart(new THREE.SphereGeometry(0.2, 16, 16), matBlack, -0.3, 0.8, 0, -1.0, -2.0, 0);
+        addPart(new THREE.CapsuleGeometry(0.18, 0.8, 4, 8), matWhite, -0.3, 0.1, 0, -1.0, -2.5, 0);
+        addPart(new THREE.SphereGeometry(0.15, 16, 16), matBlack, -0.3, -0.4, 0, -1.0, -3.0, 0);
+        addPart(new THREE.CapsuleGeometry(0.15, 0.7, 4, 8), matWhite, -0.3, -1.0, 0, -1.0, -3.5, 0);
+        addPart(new THREE.BoxGeometry(0.25, 0.15, 0.4), matBlack, -0.3, -1.5, 0.1, -1.0, -4.0, 0);
+
+        // --- Right Leg ---
+        addPart(new THREE.SphereGeometry(0.2, 16, 16), matBlack, 0.3, 0.8, 0, 1.0, -2.0, 0);
+        addPart(new THREE.CapsuleGeometry(0.18, 0.8, 4, 8), matWhite, 0.3, 0.1, 0, 1.0, -2.5, 0);
+        addPart(new THREE.SphereGeometry(0.15, 16, 16), matBlack, 0.3, -0.4, 0, 1.0, -3.0, 0);
+        addPart(new THREE.CapsuleGeometry(0.15, 0.7, 4, 8), matWhite, 0.3, -1.0, 0, 1.0, -3.5, 0);
+        addPart(new THREE.BoxGeometry(0.25, 0.15, 0.4), matBlack, 0.3, -1.5, 0.1, 1.0, -4.0, 0);
+
+        robotRoot.position.y = -0.5; // Center it
+
+        // ==========================================
+        // 3. INTERACTION LOGIC (Mouse & Hand)
+        // ==========================================
+
+        // Mouse Fallback Logic
+        window.addEventListener('mousemove', (e) => {
+            if (state.mode === 'hand') return;
+            updatePointer(e.clientX, e.clientY);
+        });
+
+        window.addEventListener('mousedown', () => {
+            if (state.mode === 'hand') return;
+            grabObject();
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (state.mode === 'hand') return;
+            releaseObject();
+        });
+
+        function updatePointer(x, y) {
+            state.mouse.x = (x / window.innerWidth) * 2 - 1;
+            state.mouse.y = -(y / window.innerHeight) * 2 + 1;
+            reticle.style.left = `${x}px`;
+            reticle.style.top = `${y}px`;
+            reticle.style.opacity = '1';
+        }
+
+        function grabObject() {
+            state.raycaster.setFromCamera(state.mouse, camera);
+            const intersects = state.raycaster.intersectObjects(state.parts);
+
+            if (intersects.length > 0) {
+                state.grabbedObject = intersects[0].object;
+                state.grabbedObject.userData.isGrabbed = true;
+                reticle.classList.add('grabbing');
+
+                // Plane aligned to camera for smooth dragging
+                state.plane.setFromNormalAndCoplanarPoint(
+                    camera.getWorldDirection(new THREE.Vector3()).negate(),
+                    state.grabbedObject.position
+                );
+                statusText.textContent = "MANIPULATING COMPONENT";
+            }
+        }
+
+        function releaseObject() {
+            if (state.grabbedObject) {
+                state.grabbedObject.userData.isGrabbed = false;
+                state.grabbedObject = null;
+                reticle.classList.remove('grabbing');
+                statusText.textContent = state.mode === 'hand' ? "VISION ACTIVE" : "MOUSE MODE";
+            }
+        }
+
+        // Buttons
+        window.toggleExplode = () => {
+            state.targetExplode = state.targetExplode === 0 ? 1 : 0;
+            document.getElementById('btn-explode').classList.toggle('active', state.targetExplode === 1);
+            speak(state.targetExplode === 1 ? "Disassembling structural integrity." : "Reassembling.");
+        };
+
+        window.reassemble = () => {
+            state.targetExplode = 0;
+            document.getElementById('btn-explode').classList.remove('active');
+            document.getElementById('btn-grab').classList.add('active');
+            releaseObject();
+            state.parts.forEach(p => p.position.copy(p.userData.orig));
+            speak("All components restored.");
+        };
+
+        window.setTool = (tool) => { state.tool = tool; };
+        window.toggleChat = () => document.getElementById('chat-panel').classList.toggle('closed');
+
+        // ==========================================
+        // 4. AI CHAT & VOICE
+        // ==========================================
+        window.sendChat = () => {
+            const input = document.getElementById('chat-input');
+            const text = input.value.trim();
+            if (!text) return;
+
+            const msgContainer = document.getElementById('chat-messages');
+            msgContainer.innerHTML += `<div class="msg user">${text}</div>`;
+            input.value = '';
+            msgContainer.scrollTop = msgContainer.scrollHeight;
+
+            setTimeout(() => {
+                let reply = "Analyzing request... I am fully functional.";
+                const lower = text.toLowerCase();
+
+                if (lower.includes('hello') || lower.includes('hi')) reply = "Hello. I am Optimus. My systems are ready.";
+                else if (lower.includes('explode') || lower.includes('break')) { reply = "Initiating disassembly."; toggleExplode(); }
+                else if (lower.includes('fix') || lower.includes('assemble')) { reply = "Reassembling all components."; reassemble(); }
+                else if (lower.includes('how') || lower.includes('control')) reply = "Pinch your fingers to grab my limbs. Make a fist to break me apart.";
+                else if (lower.includes('who')) reply = "I am a next-generation humanoid robot.";
+
+                msgContainer.innerHTML += `<div class="msg bot">${reply}</div>`;
+                msgContainer.scrollTop = msgContainer.scrollHeight;
+                speak(reply);
+            }, 600);
+        };
+
+        function speak(text) {
+            if (!window.speechSynthesis) return;
+            window.speechSynthesis.cancel();
+            const u = new SpeechSynthesisUtterance(text);
+            u.rate = 1.05; u.pitch = 0.8; u.volume = 0.8;
+            window.speechSynthesis.speak(u);
+        }
+
+        // ==========================================
+        // 5. MEDIAPIPE (ZERO-FAIL HAND TRACKING)
+        // ==========================================
+        let handLandmarker = null;
+        let video = document.createElement('video');
+        video.autoplay = true; video.playsInline = true; video.muted = true;
+
+        async function initVision() {
+            loaderText.textContent = "LOADING NEURAL VISION...";
+            try {
+                // Use dynamic import for ES module reliability
+                const { FilesetResolver, HandLandmarker } = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
+
+                const fileset = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+                handLandmarker = await HandLandmarker.createFromOptions(fileset, {
+                    baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task", delegate: "GPU" },
+                    runningMode: "VIDEO",
+                    numHands: 1
+                });
+
+                // Request webcam
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+                await video.play();
+
+                state.mode = 'hand';
+                statusDot.classList.add('active');
+                statusText.textContent = "VISION ACTIVE";
+                loader.classList.add('hidden');
+
+                detectHands();
+
+            } catch (e) {
+                console.warn("Vision failed, falling back to mouse:", e);
+                state.mode = 'mouse';
+                statusText.textContent = "MOUSE MODE ACTIVE";
+                errorMsg.style.display = 'block';
+                errorMsg.textContent = "Camera/AI not available. Use your mouse to grab and click.";
+                setTimeout(() => loader.classList.add('hidden'), 1500);
+            }
+        }
+
+        function detectHands() {
+            if (state.mode === 'hand' && handLandmarker && video.readyState >= 2) {
+                const results = handLandmarker.detectForVideo(video, performance.now());
+
+                if (results.landmarks && results.landmarks.length > 0) {
+                    const hand = results.landmarks[0];
+                    const indexTip = hand[8];
+                    const thumbTip = hand[4];
+
+                    // Map to screen
+                    const screenX = (1 - indexTip.x) * window.innerWidth;
+                    const screenY = indexTip.y * window.innerHeight;
+                    updatePointer(screenX, screenY);
+                    reticle.style.opacity = '1';
+
+                    // Pinch detection
+                    const dist = Math.hypot(indexTip.x - thumbTip.x, indexTip.y - thumbTip.y);
+                    const isPinching = dist < 0.06;
+
+                    if (isPinching && !state.grabbedObject) grabObject();
+                    else if (!isPinching && state.grabbedObject) releaseObject();
+
+                    // Fist detection (Explode)
+                    const isFist = hand[8].y > hand[6].y && hand[12].y > hand[10].y && hand[16].y > hand[14].y;
+                    if (isFist && state.targetExplode === 0) toggleExplode();
+
+                    // Open hand detection (Fix)
+                    const isOpen = hand[8].y < hand[6].y && hand[12].y < hand[10].y && hand[16].y < hand[14].y && hand[20].y < hand[18].y;
+                    if (isOpen && state.targetExplode === 1) reassemble();
+
+                } else {
+                    reticle.style.opacity = '0.3';
+                }
+            }
+            requestAnimationFrame(detectHands);
+        }
+
+        // ==========================================
+        // 6. ANIMATION LOOP
+        // ==========================================
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Explode logic
+            state.currentExplode += (state.targetExplode - state.currentExplode) * 0.08;
+
+            state.parts.forEach(part => {
+                if (part === state.grabbedObject) return;
+
+                const targetPos = part.userData.orig.clone().lerp(part.userData.exp, state.currentExplode);
+                part.position.lerp(targetPos, 0.1);
+
+                // Rotate parts slightly during explosion for effect
+                if (state.currentExplode > 0.1) {
+                    part.rotation.y += 0.01 * state.currentExplode;
+                    part.rotation.x += 0.005 * state.currentExplode;
+                } else {
+                    part.rotation.x = 0;
+                    part.rotation.y = 0;
+                    part.rotation.z = 0;
+                }
+            });
+
+            // Dragging
+            if (state.grabbedObject) {
+                state.raycaster.setFromCamera(state.mouse, camera);
+                if (state.raycaster.ray.intersectPlane(state.plane, state.intersection)) {
+                    state.grabbedObject.position.copy(state.intersection);
+                }
+            }
+
+            // Idle rotation
+            if (!state.grabbedObject && state.currentExplode < 0.05) {
+                robotRoot.rotation.y += 0.003;
+            }
+
+            controls.update();
+            composer.render();
+
+            // Update 3D grid position to follow camera
+            grid.position.z = camera.position.z - 5;
+        }
+
+        // Start
+        animate();
+        initVision();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+
+</html>
